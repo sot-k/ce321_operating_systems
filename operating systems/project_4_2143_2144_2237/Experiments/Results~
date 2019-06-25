@@ -1,0 +1,80 @@
+KARAMELLIOS SOTIRIOS 2237 skaramellios@uth.gr
+CHOULIARAS ANDREAS 2143 achouliaras@uth.gr
+SAMARAS VASILIOS 2144 vsamaras@uth.gr
+
+The file we used is very big so we didn't attach it to you.
+Instead we use the initFile to create it
+
+the file is a table of 200*1024*1024 integers
+
+with test 1 we access the table entries every 1Mb of data
+from the end of the file to the start
+
+with test 2 we access the first entry every 1 in 50 columns
+and we spam 100 times with data the first entry in every other column
+
+=============INITFILE==============
+[ 4275.912152] [CLOOK] add W 533007
+[ 4275.912153] [CLOOK] dsp W 533007
+[ 4280.918275] [CLOOK] add W 533015
+[ 4280.918278] [CLOOK] dsp W 533015
+[ 4280.918758] [CLOOK] add W 533039
+[ 4280.918759] [CLOOK] dsp W 533039
+[ 4285.961365] [CLOOK] add W 533047
+[ 4285.961369] [CLOOK] dsp W 533047
+[ 4285.961833] [CLOOK] add W 533071
+[ 4285.961834] [CLOOK] dsp W 533071
+===============TEST 1===============
+[ 2331.301616] [CLOOK] dsp W 2064447<-this is the last place of disk head
+[ 2331.301981] [CLOOK] add W 278591 <-this is the first request we add to the queue
+[ 2331.301983] [CLOOK] add W 1622095	
+[ 2331.301983] [CLOOK] add W 1626191	
+[ 2331.301984] [CLOOK] add W 1630287	
+[ 2331.301984] [CLOOK] add W 1634383	
+[ 2331.301985] [CLOOK] add W 1916991	
+[ 2331.301986] [CLOOK] add W 1921087	
+[ 2331.301986] [CLOOK] add W 1925183	
+[ 2331.301987] [CLOOK] add W 1929279	
+[ 2331.301987] [CLOOK] add W 2048063	
+[ 2331.301988] [CLOOK] add W 2052159	
+[ 2331.301988] [CLOOK] add W 2056255	
+[ 2331.301989] [CLOOK] add W 2060351	
+[ 2331.301990] [CLOOK] add W 2068543<-  this is the closest request to the left	
+[ 2331.301990] [CLOOK] add W 2072639	of the disk head
+[ 2331.301991] [CLOOK] add W 2076735 	
+[ 2331.301991] [CLOOK] dsp W 2068543	
+[ 2331.302098] [CLOOK] dsp W 2072639	
+[ 2331.302191] [CLOOK] dsp W 2076735	
+[ 2331.302236] [CLOOK] dsp W 278591 <-	this request in served after 3 requests
+[ 2331.302311] [CLOOK] dsp W 1622095    even though it came earlier from them
+[ 2331.302399] [CLOOK] dsp W 1626191	because they are in the route the disk head
+[ 2331.302442] [CLOOK] dsp W 1630287	follows earlier than 278591
+[ 2331.302541] [CLOOK] dsp W 1634383
+[ 2331.302626] [CLOOK] dsp W 1916991
+[ 2331.302671] [CLOOK] dsp W 1921087
+[ 2331.302725] [CLOOK] dsp W 1925183
+[ 2331.302769] [CLOOK] dsp W 1929279
+[ 2331.302844] [CLOOK] dsp W 2048063
+[ 2331.302931] [CLOOK] dsp W 2052159
+[ 2331.302975] [CLOOK] dsp W 2056255
+[ 2331.303050] [CLOOK] dsp W 2060351
+===============TEST2================
+[ 4273.316494] [CLOOK] dsp W 2077759
+[ 4273.316959] [CLOOK] add W 33487
+[ 4273.316960] [CLOOK] add W 34511
+[ 4273.316960] [CLOOK] add W 35535
+[ 4273.316961] [CLOOK] add W 36559
+[ 4273.316961] [CLOOK] add W 37583
+[ 4273.316962] [CLOOK] add W 38607
+[ 4273.316963] [CLOOK] add W 39631
+[ 4273.316963] [CLOOK] add W 2078783
+[ 4273.316964] [CLOOK] add W 2079807
+[ 4273.316965] [CLOOK] dsp W 2078783
+[ 4273.317058] [CLOOK] dsp W 2079807
+[ 4273.317124] [CLOOK] dsp W 33487
+[ 4273.317351] [CLOOK] dsp W 34511
+[ 4273.317437] [CLOOK] dsp W 35535
+[ 4273.317668] [CLOOK] dsp W 36559
+[ 4273.317737] [CLOOK] dsp W 37583
+[ 4273.317803] [CLOOK] dsp W 38607
+[ 4273.321012] [CLOOK] dsp W 39631

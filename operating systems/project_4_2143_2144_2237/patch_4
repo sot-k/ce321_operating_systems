@@ -1,0 +1,259 @@
+diff -ruN linux-3.14.62-orig/block/clook-iosched.c linux-3.14.62-dev/block/clook-iosched.c
+--- linux-3.14.62-orig/block/clook-iosched.c	1970-01-01 02:00:00.000000000 +0200
++++ linux-3.14.62-dev/block/clook-iosched.c	2018-05-13 18:31:02.129572740 +0300
+@@ -0,0 +1,177 @@
++/*
++ * elevator clook
++ */
++#include <linux/blkdev.h>
++#include <linux/elevator.h>
++#include <linux/bio.h>
++#include <linux/module.h>
++#include <linux/slab.h>
++#include <linux/init.h>
++
++#define READ 0 //rq_data_dir(rq) returns 0 if the request was for reading
++//so we define it for clarification
++
++sector_t disk_head=-1; // a variable to keep track of the last place
++//our magnetic head was
++
++struct clook_data {
++	struct list_head queue;
++};
++
++static void clook_merged_requests(struct request_queue *q, struct request *rq,
++				 struct request *next)
++{
++	list_del_init(&next->queuelist);
++}
++
++static int clook_dispatch(struct request_queue *q, int force)
++{
++	struct clook_data *nd = q->elevator->elevator_data;
++
++	if (!list_empty(&nd->queue)) {//if our list is not empty
++		struct request *rq;
++		rq = list_entry(nd->queue.next, struct request, queuelist);
++		list_del_init(&rq->queuelist);
++		elv_dispatch_sort(q, rq);//we dispatch the first request on our sorted queue
++
++		disk_head=blk_rq_pos(rq); //the position of the magnetic head
++
++		if (rq_data_dir(rq) == READ)// if the request was for readin
++			printk("[CLOOK] dsp R %lu\n",(unsigned long)blk_rq_pos(rq));
++		else
++			printk("[CLOOK] dsp W %lu\n",(unsigned long)blk_rq_pos(rq));
++
++		return 1;
++	}
++	return 0;
++}
++
++static void clook_add_request(struct request_queue *q, struct request *rq)
++{
++	struct clook_data *nd = q->elevator->elevator_data;
++	struct list_head *curr =NULL;
++	struct request *curr_req=NULL;
++
++	list_for_each(curr,&nd->queue)//iterate every node in queue
++	{//in order to sort our queue by the relative position the new request has
++		//from the disk head. so we have to analyze 6 cases
++		curr_req = list_entry(curr,struct request ,queuelist);
++		if(blk_rq_pos(rq) < disk_head){//if the request is "left" from the head
++		//when the request is before the head we search for the first curr request
++		// that is between our new request and the head. that means that the curr
++		//request has to be "left" from the head and "right" from the new request
++			if((blk_rq_pos(rq)>blk_rq_pos(curr_req))||(blk_rq_pos(curr_req)>disk_head)){
++				continue;//if the curr is after the head or before the request then
++				//we have to continue to the next queued request
++			}
++			else{
++				break;//this is the first node that is placed in disk after
++				//our new request and before the head. so we break and list_add_tail
++				//to put it before the curr node
++			}
++		}
++		else{// if the request is "right" from the head
++		//when the request is after the head we search for the first curr request
++		// that is after our new request. that means that the curr request has to be
++		// "left" from the head or "right" from the new request
++			if((blk_rq_pos(rq)<blk_rq_pos(curr_req))||(blk_rq_pos(curr_req)<disk_head)){
++				break;//we break and list_add_tail to put it before the curr node
++			}
++			else{// if it is "right" from the head and "left" from our new request we
++			//continue to the next one
++				continue;
++			}
++		}
++	}
++	//print if the request is about read or write operation
++	if (rq_data_dir(rq) == READ)
++		printk("[CLOOK] add R %lu\n",(unsigned long)blk_rq_pos(rq));
++	else
++		printk("[CLOOK] add W %lu\n",(unsigned long)blk_rq_pos(rq));
++
++	list_add_tail(&rq->queuelist, curr);
++}
++
++static struct request *
++clook_former_request(struct request_queue *q, struct request *rq)
++{
++	struct clook_data *nd = q->elevator->elevator_data;
++
++	if (rq->queuelist.prev == &nd->queue)
++		return NULL;
++	return list_entry(rq->queuelist.prev, struct request, queuelist);
++}
++
++static struct request *
++clook_latter_request(struct request_queue *q, struct request *rq)
++{
++	struct clook_data *nd = q->elevator->elevator_data;
++
++	if (rq->queuelist.next == &nd->queue)
++		return NULL;
++	return list_entry(rq->queuelist.next, struct request, queuelist);
++}
++
++static int clook_init_queue(struct request_queue *q, struct elevator_type *e)
++{
++	struct clook_data *nd;
++	struct elevator_queue *eq;
++
++	eq = elevator_alloc(q, e);
++	if (!eq)
++		return -ENOMEM;
++
++	nd = kmalloc_node(sizeof(*nd), GFP_KERNEL, q->node);
++	if (!nd) {
++		kobject_put(&eq->kobj);
++		return -ENOMEM;
++	}
++	eq->elevator_data = nd;
++
++	INIT_LIST_HEAD(&nd->queue);
++
++	spin_lock_irq(q->queue_lock);
++	q->elevator = eq;
++	spin_unlock_irq(q->queue_lock);
++	return 0;
++}
++
++static void clook_exit_queue(struct elevator_queue *e)
++{
++	struct clook_data *nd = e->elevator_data;
++
++	BUG_ON(!list_empty(&nd->queue));
++	kfree(nd);
++}
++
++static struct elevator_type elevator_clook = {
++	.ops = {
++		.elevator_merge_req_fn		= clook_merged_requests,
++		.elevator_dispatch_fn		= clook_dispatch,
++		.elevator_add_req_fn		= clook_add_request,
++		.elevator_former_req_fn		= clook_former_request,
++		.elevator_latter_req_fn		= clook_latter_request,
++		.elevator_init_fn		= clook_init_queue,
++		.elevator_exit_fn		= clook_exit_queue,
++	},
++	.elevator_name = "clook",
++	.elevator_owner = THIS_MODULE,
++};
++
++static int __init clook_init(void)
++{
++	return elv_register(&elevator_clook);
++}
++
++static void __exit clook_exit(void)
++{
++	elv_unregister(&elevator_clook);
++}
++
++module_init(clook_init);
++module_exit(clook_exit);
++
++
++MODULE_AUTHOR("SOTIRIS KARAMELLIOS CHOULIARAS ANTREAS SAMARAS VASILIS");
++MODULE_LICENSE("GPL");
++MODULE_DESCRIPTION("clook IO scheduler");
+diff -ruN linux-3.14.62-orig/block/Kconfig.iosched linux-3.14.62-dev/block/Kconfig.iosched
+--- linux-3.14.62-orig/block/Kconfig.iosched	2016-02-25 21:59:45.000000000 +0200
++++ linux-3.14.62-dev/block/Kconfig.iosched	2018-05-12 17:24:42.462639112 +0300
+@@ -2,6 +2,17 @@
+ 
+ menu "IO Schedulers"
+ 
++config IOSCHED_CLOOK
++	tristate "CLOOK I/O scheduler"
++	default y
++	---help---
++	  The CLOOK I/O scheduler is simple and compact. It will provide
++	  CLOOK service. In CLOOK, the disk arm inspite of going to the 
++	  end goes only to the last request to be serviced in front of the
++	  head and then from there goes to the other end’s last request. 
++          Thus, it also prevents the extra delay which occurred due to 
++	  unnecessary traversal to the end of the disk.
++
+ config IOSCHED_NOOP
+ 	bool
+ 	default y
+@@ -55,6 +66,9 @@
+ 	config DEFAULT_NOOP
+ 		bool "No-op"
+ 
++	config DEFAULT_CLOOK
++		bool "CLOOK" if IOSCHED_CLOOK=y
++
+ endchoice
+ 
+ config DEFAULT_IOSCHED
+diff -ruN linux-3.14.62-orig/block/Makefile linux-3.14.62-dev/block/Makefile
+--- linux-3.14.62-orig/block/Makefile	2016-02-25 21:59:45.000000000 +0200
++++ linux-3.14.62-dev/block/Makefile	2018-05-12 17:11:36.642665768 +0300
+@@ -9,6 +9,8 @@
+ 			blk-mq-sysfs.o blk-mq-cpu.o blk-mq-cpumap.o ioctl.o \
+ 			genhd.o scsi_ioctl.o partition-generic.o partitions/
+ 
++obj-$(CONFIG_IOSCHED_CLOOK)	+= clook-iosched.o
++
+ obj-$(CONFIG_BLK_DEV_BSG)	+= bsg.o
+ obj-$(CONFIG_BLK_DEV_BSGLIB)	+= bsg-lib.o
+ obj-$(CONFIG_BLK_CGROUP)	+= blk-cgroup.o
+Binary files linux-3.14.62-orig/initrd.img-3.14.62-dev and linux-3.14.62-dev/initrd.img-3.14.62-dev differ
+diff -ruN linux-3.14.62-orig/Makefile linux-3.14.62-dev/Makefile
+--- linux-3.14.62-orig/Makefile	2016-02-25 21:59:45.000000000 +0200
++++ linux-3.14.62-dev/Makefile	2016-02-28 11:21:48.777215855 +0200
+@@ -1,7 +1,7 @@
+ VERSION = 3
+ PATCHLEVEL = 14
+ SUBLEVEL = 62
+-EXTRAVERSION =
++EXTRAVERSION = -dev
+ NAME = Remembering Coco
+ 
+ # *DOCUMENTATION*
+diff -ruN linux-3.14.62-orig/security/tomoyo/builtin-policy.h linux-3.14.62-dev/security/tomoyo/builtin-policy.h
+--- linux-3.14.62-orig/security/tomoyo/builtin-policy.h	1970-01-01 02:00:00.000000000 +0200
++++ linux-3.14.62-dev/security/tomoyo/builtin-policy.h	2018-05-13 16:24:30.590565286 +0300
+@@ -0,0 +1,12 @@
++static char tomoyo_builtin_profile[] __initdata =
++"";
++static char tomoyo_builtin_exception_policy[] __initdata =
++"initialize_domain /sbin/modprobe from any\n"
++"initialize_domain /sbin/hotplug from any\n"
++"";
++static char tomoyo_builtin_domain_policy[] __initdata =
++"";
++static char tomoyo_builtin_manager[] __initdata =
++"";
++static char tomoyo_builtin_stat[] __initdata =
++"";
+diff -ruN linux-3.14.62-orig/security/tomoyo/policy/exception_policy.conf linux-3.14.62-dev/security/tomoyo/policy/exception_policy.conf
+--- linux-3.14.62-orig/security/tomoyo/policy/exception_policy.conf	1970-01-01 02:00:00.000000000 +0200
++++ linux-3.14.62-dev/security/tomoyo/policy/exception_policy.conf	2018-05-13 16:24:30.554565287 +0300
+@@ -0,0 +1,2 @@
++initialize_domain /sbin/modprobe from any
++initialize_domain /sbin/hotplug from any
